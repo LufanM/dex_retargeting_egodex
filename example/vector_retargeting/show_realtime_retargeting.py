@@ -89,7 +89,8 @@ def start_retargeting(queue: multiprocessing.Queue, robot_dir: str, config_path:
         loader.scale = 1.5
 
     if "glb" not in robot_name:
-        filepath = str(filepath).replace(".urdf", "_glb.urdf")
+        # filepath = str(filepath).replace(".urdf", "_glb.urdf") #TODO 手动改成glb的urdf
+        filepath = str(filepath)
     else:
         filepath = str(filepath)
 
@@ -144,7 +145,7 @@ def start_retargeting(queue: multiprocessing.Queue, robot_dir: str, config_path:
             else:
                 origin_indices = indices[0, :]
                 task_indices = indices[1, :]
-                ref_value = joint_pos[task_indices, :] - joint_pos[origin_indices, :]
+                ref_value = joint_pos[task_indices, :] - joint_pos[origin_indices, :]#看懂这一段就能迁移了
             qpos = retargeting.retarget(ref_value)
             robot.set_qpos(qpos[retargeting_to_sapien])
 
@@ -159,10 +160,16 @@ def produce_frame(queue: multiprocessing.Queue, camera_path: Optional[str] = Non
         cap = cv2.VideoCapture(camera_path)
 
     while cap.isOpened():
-        success, image = cap.read()
-        time.sleep(1 / 30.0)
+        success, image = cap.read() # OpenCV 处理图像的默认颜色通道顺序BGR
+        time.sleep(1 / 15.0)
         if not success:
             continue
+        # else:
+        #     print("image 的数据类型:", type(image))    # 输出：<class 'numpy.ndarray'>
+        #     print("image 的维度（形状）:", image.shape) # 示例输出：(480, 640, 3)（480行、640列、3通道）
+        #     print("image 的数据类型（像素值类型）:", image.dtype) # 输出：uint8
+        #     print("读取帧失败，image =", image)  # 输出：读取帧失败，image = None
+
         queue.put(image)
 
 

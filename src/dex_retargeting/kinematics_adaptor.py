@@ -44,6 +44,18 @@ class KinematicAdaptor:
 
 
 class MimicJointKinematicAdaptor(KinematicAdaptor):
+    """
+    背景：
+        有些关节的运动并不是独立的，而是由其他关节的运动通过固定的几何关系决定（例如平行四连杆、齿轮传动等）。这种关节被称为 mimic joint（模仿关节/从动关节）。
+        它的位置（角度/位移）通常与某个源关节的位置成线性关系：
+        q_mimic = multiplier * q_source + offset
+        其中 multiplier 是一个乘数，offset 是一个偏移量。这些参数由
+    在代码中的作用：
+        - self.multipliers 就是上述公式中的 multiplier 列表，每个元素对应一个 mimic 关节的乘数。
+        - 它与 self.offsets 一起，定义了从源关节到 mimic 关节的映射关系。
+        - 在 forward_qpos 方法中，通过 pin_qpos[self.idx_pin2source] * self.multipliers + self.offsets 计算出所有 mimic 关节的目标位置，然后更新到完整的关节状态 pin_qpos 中。
+        - 在 backward_jacobian 方法中，将 mimic 关节对雅可比矩阵的贡献乘以 multipliers 后累加到目标关节的雅可比上，以保证运动学计算的正确性。
+    """
     def __init__(
         self,
         robot: RobotWrapper,
@@ -105,6 +117,17 @@ class MimicJointKinematicAdaptor(KinematicAdaptor):
         return pin_qpos
 
     def backward_jacobian(self, jacobian: np.ndarray) -> np.ndarray:
+        """
+        self.idx_pin2target 目标关节索引（需要优化的关节）在全关节中的位置
+        self.idx_pin2mimic 镜像关节索引在全关节中的位置
+        self.multipliers 镜像关节与源关节的乘数关系, 镜像关节角度 = 乘数 × 源关节角度
+        self.idx_target2source 映射，表示每个镜像关节对应的源目标关节在目标关节数组中的索引。
+
+        v = J_t * q_dot_target + J_m * q_dot_mimic
+        由于 q_dot_mimic = multipliers * q_dot_source, 可以将其代入上式得到：
+        v = J_t * q_dot_target + J_m * multipliers * q_dot_source
+        因此，v = (J_t + J_m * multipliers) * q_dot_target，其中 J_t 是目标关节的雅可比矩阵，J_m 是镜像关节的雅可比矩阵。
+        """
         target_jacobian = jacobian[..., self.idx_pin2target]
         mimic_joint_jacobian = jacobian[..., self.idx_pin2mimic] * self.multipliers
 

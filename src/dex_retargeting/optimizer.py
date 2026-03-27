@@ -358,7 +358,7 @@ class DexPilotOptimizer(Optimizer):
             self.num_fingers
         )
 
-        if target_link_human_indices is None:
+        if target_link_human_indices is None: # 该参数在外部计算 target_vector 的时候用
             target_link_human_indices = (
                 np.stack([origin_link_index, task_link_index], axis=0) * 4
             ).astype(int)
@@ -437,18 +437,18 @@ class DexPilotOptimizer(Optimizer):
         [0, 0, 1],
         array([0.1, 0.1, 0.1, 0.2, 0.2, 0.2]))
         """
-        projected = np.zeros(num_fingers * (num_fingers - 1) // 2, dtype=bool)
+        projected = np.zeros(num_fingers * (num_fingers - 1) // 2, dtype=bool) # 4+3+2+1 = 5*4/2 = 10, assume 5 fingers 
 
         s2_project_index_origin = []
         s2_project_index_task = []
-        for i in range(0, num_fingers - 2):
+        for i in range(0, num_fingers - 2): # 映射索引生成，
             for j in range(i + 1, num_fingers - 1):
-                s2_project_index_origin.append(j)
-                s2_project_index_task.append(i)
+                s2_project_index_origin.append(j)# [1,2,3,2,3,3]，表示每个向量的origin在projected中的索引位置
+                s2_project_index_task.append(i) #  [0,0,0,1,1,2]，表示每个向量的task在projected中的索引位置
 
         projected_dist = np.array(
             [eta1] * (num_fingers - 1)
-            + [eta2] * ((num_fingers - 1) * (num_fingers - 2) // 2)
+            + [eta2] * ((num_fingers - 1) * (num_fingers - 2) // 2) # 前4个是[eta1,...]，后面6个是[eta2,...]，表示每个向量的投影距离阈值
         )
 
         return projected, s2_project_index_origin, s2_project_index_task, projected_dist
@@ -462,6 +462,11 @@ class DexPilotOptimizer(Optimizer):
         len_proj = len(self.projected)
         len_s2 = len(self.s2_project_index_task)
         len_s1 = len_proj - len_s2
+        """
+            len_proj：手指间向量总数（不包括手腕-手指向量）。
+            len_s1：第一层投影向量数（拇指与其他手指的向量数）。
+            len_s2：第二层投影向量数（非拇指手指间的向量数）。 
+        """
 
         # Update projection indicator
         target_vec_dist = np.linalg.norm(target_vector[:len_proj], axis=1)
@@ -471,6 +476,7 @@ class DexPilotOptimizer(Optimizer):
             self.projected[:len_s1][self.s2_project_index_origin],
             self.projected[:len_s1][self.s2_project_index_task],
         )
+        # 防止非拇指手指间距离小于 0.03，距离过小的时weight会变为high_weight，从而让优化器更关注这些向量的投影，保持手指间的相对位置关系，避免出现不自然的交叉等问题
         self.projected[len_s1:len_proj] = np.logical_and(
             self.projected[len_s1:len_proj], target_vec_dist[len_s1:len_proj] <= 0.03
         )
@@ -492,8 +498,8 @@ class DexPilotOptimizer(Optimizer):
             )
         )
 
-        # Compute reference distance vector
-        normal_vec = target_vector * self.scaling  # (10, 3)
+        # Compute reference distance vector  ！前10个是指尖之间的向量，后5个是指尖和手腕之间的向量，所有权重进行区别！
+        normal_vec = target_vector * self.scaling  # (10, 3) 10组映射向量，每组是一个位置向量(x, y, z)，
         dir_vec = target_vector[:len_proj] / (target_vec_dist[:, None] + 1e-6)  # (6, 3)
         projected_vec = dir_vec * self.projected_dist[:, None]  # (6, 3)
 
@@ -553,7 +559,10 @@ class DexPilotOptimizer(Optimizer):
 
                 # Note: the joint order in this jacobian is consistent pinocchio
                 jacobians = np.stack(jacobians, axis=0)
-                huber_distance.backward()
+                # 因为只有torch_body_pos是requires_grad=True的，所以 huber_distance.backward() 后，
+                # torch_body_pos.grad就是 huber_distance.backward() 的计算结果，即每个 body_pos 对
+                # huber_distance 的梯度，形状是(10, 3)，表示每个链接位置的梯度
+                huber_distance.backward()  
                 grad_pos = torch_body_pos.grad.cpu().numpy()[:, None, :]
 
                 # Convert the jacobian from pinocchio order to target order
@@ -568,10 +577,10 @@ class DexPilotOptimizer(Optimizer):
                 # In the original DexPilot, γ = 2.5 × 10−3 is a weight on regularizing the Allegro angles to zero
                 # which is equivalent to fully opened the hand
                 # In our implementation, we regularize the joint angles to the previous joint angles
-                grad_qpos += 2 * self.norm_delta * (x - last_qpos)
+                grad_qpos += 2 * self.norm_delta * (x - last_qpos) 
 
                 grad[:] = grad_qpos[:]
-
+                # 这一部分数学原理可以看 retargeting_math.md 文档
             return result
 
         return objective

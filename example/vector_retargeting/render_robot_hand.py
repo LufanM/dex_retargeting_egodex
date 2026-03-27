@@ -98,7 +98,8 @@ def render_by_sapien(
         loader.scale = 1.5
 
     if "glb" not in robot_name:
-        filepath = str(filepath).replace(".urdf", "_glb.urdf")
+        # filepath = str(filepath).replace(".urdf", "_glb.urdf")
+        filepath = str(filepath)
     else:
         filepath = str(filepath)
     robot = loader.load(filepath)

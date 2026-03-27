@@ -4,7 +4,7 @@ import numpy as np
 from mediapipe.framework.formats import landmark_pb2
 from mediapipe.python.solutions import hands_connections
 from mediapipe.python.solutions.drawing_utils import DrawingSpec
-from mediapipe.python.solutions.hands import HandLandmark
+from mediapipe.python.solutions.hands import HandLandmark 
 
 OPERATOR2MANO_RIGHT = np.array(
     [
@@ -24,6 +24,11 @@ OPERATOR2MANO_LEFT = np.array(
 
 
 class SingleHandDetector:
+    """
+    selfie: whether the camera is selfie camera. If selfie is True, the detected hand type is the same as the input hand_type. 
+            Otherwise, the detected hand type is the opposite of the input hand_type. This is because MediaPipe will flip the 
+            image if it is selfie camera, which will cause the detected hand type to be flipped.
+    """
     def __init__(
         self,
         hand_type="Right",
@@ -60,7 +65,7 @@ class SingleHandDetector:
             landmark_style = {}
             for landmark in HandLandmark:
                 landmark_style[landmark] = DrawingSpec(
-                    color=(255, 48, 48), circle_radius=4, thickness=-1
+                    color=(255, 48, 48), circle_radius=4, thickness=-1 # thickness = -1 时，表示填充整个圆内部， thickness 为正数时，指定圆的轮廓线宽度（像素
                 )
 
             connections = hands_connections.HAND_CONNECTIONS
@@ -92,7 +97,7 @@ class SingleHandDetector:
         if desired_hand_num < 0:
             return 0, None, None, None
 
-        keypoint_3d = results.multi_hand_world_landmarks[desired_hand_num]
+        keypoint_3d = results.multi_hand_world_landmarks[desired_hand_num] # mediapipe.python.solutions.hands 看出输出顺序
         keypoint_2d = results.multi_hand_landmarks[desired_hand_num]
         num_box = len(results.multi_hand_landmarks)
 
@@ -100,7 +105,9 @@ class SingleHandDetector:
         keypoint_3d_array = self.parse_keypoint_3d(keypoint_3d)
         keypoint_3d_array = keypoint_3d_array - keypoint_3d_array[0:1, :]
         mediapipe_wrist_rot = self.estimate_frame_from_hand_points(keypoint_3d_array)
-        joint_pos = keypoint_3d_array @ mediapipe_wrist_rot @ self.operator2mano
+        # keypoint_3d_array是（21，3）@（3，3）是行向量右乘 T^camera_wrist
+        # operator2mano:将手腕局部坐标系进一步旋转到 MANO 模型定义的坐标系（例如对齐手指方向）
+        joint_pos = keypoint_3d_array @ mediapipe_wrist_rot @ self.operator2mano 
 
         return num_box, joint_pos, keypoint_2d, mediapipe_wrist_rot
 
