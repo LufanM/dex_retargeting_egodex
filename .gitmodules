@@ -1,8 +1,3 @@
-[submodule "assets"]
-	path = assets
-	url = https://github.com/dexsuite/dex-urdf.git
-	branch = main
-
 [submodule "egodex"]
 	path = egodex
 	url = https://github.com/apple/ml-egodex.git
