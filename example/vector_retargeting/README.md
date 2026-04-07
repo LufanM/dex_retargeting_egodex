@@ -62,8 +62,3 @@ instantaneously displaying the retargeting outcomes in the SAPIEN viewer. Specia
 to [@xbkaishui](https://github.com/xbkaishui) for contributing the initial pull request.
 
 ![realtime_example](data/realtime_example.webp)
-
-
-
-
-

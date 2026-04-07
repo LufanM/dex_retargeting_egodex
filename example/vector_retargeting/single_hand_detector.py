@@ -105,7 +105,7 @@ class SingleHandDetector:
         keypoint_3d_array = self.parse_keypoint_3d(keypoint_3d)
         keypoint_3d_array = keypoint_3d_array - keypoint_3d_array[0:1, :]
         mediapipe_wrist_rot = self.estimate_frame_from_hand_points(keypoint_3d_array)
-        # keypoint_3d_array是（21，3）@（3，3）是行向量右乘 T^camera_wrist
+        # keypoint_3d_array是（21，3）@（3，3）是行向量右乘 T (camera_wrist in the world frame) 转到手腕坐标系下
         # operator2mano:将手腕局部坐标系进一步旋转到 MANO 模型定义的坐标系（例如对齐手指方向）
         joint_pos = keypoint_3d_array @ mediapipe_wrist_rot @ self.operator2mano 
 
