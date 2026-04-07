@@ -358,7 +358,9 @@ class DexPilotOptimizer(Optimizer):
             self.num_fingers
         )
 
-        if target_link_human_indices is None: # 该参数在外部计算 target_vector 的时候用
+        # 该参数用于指定关键点索引，origin和task之间的向量为优化的目标，默认是None，会使用generate_link_indices生成一个默认的索引
+        # 因为用用于外部数据集的计算，所以需对齐，这里默认使用的是21个手指关节的手部模型(如mediapipe库中HandLandmark类定义)，取各指尖和手腕为关键点
+        if target_link_human_indices is None: 
             target_link_human_indices = (
                 np.stack([origin_link_index, task_link_index], axis=0) * 4
             ).astype(int)
@@ -565,7 +567,8 @@ class DexPilotOptimizer(Optimizer):
                 huber_distance.backward()  
                 grad_pos = torch_body_pos.grad.cpu().numpy()[:, None, :]
 
-                # Convert the jacobian from pinocchio order to target order
+                # Convert the jacobian from pinocchio order to target order，the mimic joint adaptor will also be applied in this step if exists, 
+                # so the jacobian will be converted to the order of target joints and also include the effect of mimic joints
                 if self.adaptor is not None:
                     jacobians = self.adaptor.backward_jacobian(jacobians)
                 else:

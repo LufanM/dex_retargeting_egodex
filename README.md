@@ -49,15 +49,51 @@ pip install -e ".[example]"
 # 意思会把pyproject.toml文件里面的[project.optional-dependencies]下名为example的依赖随主依赖一起安装
 ```
 torch 安装
+
 ```shell
-pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu124
+pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu124  #python 3.10
+pip3 install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu124 #python 3.9
 ```
 
 
 
+## 与Egodex环境合并安装
+
+* conda环境python版本推荐 `python==3.10`
+
+* 如果本地使用了robotpkg安装pinocchio，该安装是全局的，为了与虚拟环境冲突，在安装环境前进行方法一操作
+
+* 接下来
+
+  ```bash
+  # 激活虚拟环境
+  pip install dex_retargeting
+  pip install wandb
+  pip install -e ".[example]" 
+  
+  cd egodex
+  pip install -r requirements.txt #带torch版本，无需额外安装
+  ```
+
+
+
+* 可能得安装的问题：
+
+  ```bash
+  ModuleNotFoundError: No module named 'pkg_resources'
+  ```
+
+  解决方法：降级
+
+  ```bash
+  pip install "setuptools==69.5.1"  
+  ```
+
+  
+
 ## 关于pin本地与虚拟环境冲突问题
 
-* 方法一：conda脚本更好环境路径
+* 方法一：conda脚本更好环境路径(**推荐，安装pin的时候，需要调整环境，一劳永逸**)
 
   因为本地环境使用了robotpkg安装了pinocchio，并且更改了PYTHONPATH和包路径，为了使conda环境使用pip3 install安装的那个包；进行如下操作(假设conda环境为dex_retargetting)：
 
@@ -89,16 +125,22 @@ pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorc
     export _CONDA_OLD_LD_LIBRARY_PATH="${LD_LIBRARY_PATH}"
     export LD_LIBRARY_PATH=$(echo "$LD_LIBRARY_PATH" | tr ':' '\n' | grep -v '/opt/openrobots' | tr '\n' ':' | sed 's/:$//')
     
-    # 将 cmeel.prefix/lib 加到最前面，确保优先加载 pip 安装的库
-    CMEEL_LIB="/home/molufan/anaconda3/envs/dex_retargeting/lib/python3.9/site-packages/cmeel.prefix/lib"
-    export LD_LIBRARY_PATH="${CMEEL_LIB}:${LD_LIBRARY_PATH}"
+    # 将 cmeel.prefix/lib 加到最前面（.so 共享库）注意！
+    CMEEL_LIB="/home/molufan/anaconda3/envs/dex_retargeting/lib/python3.10/site-packages/cmeel.prefix/lib"
+    CMEEL_LIB_LOCAL="/home/molufan/.local/lib/python3.10/site-packages/cmeel.prefix/lib"
+    export LD_LIBRARY_PATH="${CMEEL_LIB}:${CMEEL_LIB_LOCAL}:${LD_LIBRARY_PATH}"
     
+    # 将 cmeel.prefix 的 Python 包路径加到 PYTHONPATH（让 import pinocchio 能找到）
+    #！注意python3.9可能无需这个，根本还是看pinocchio的存储在哪里
+    CMEEL_PY="/home/molufan/anaconda3/envs/dex_retargeting/lib/python3.10/site-packages/cmeel.prefix/lib/python3.10/site-packages"
+    CMEEL_PY_LOCAL="/home/molufan/.local/lib/python3.10/site-packages/cmeel.prefix/lib/python3.10/site-packages"
+    export PYTHONPATH="${CMEEL_PY}:${CMEEL_PY_LOCAL}:${PYTHONPATH}"
     ```
 
 
-  
 
-* 方法二： 使用代码更好环境，只作用于当前进程
+
+* 方法二： 使用代码更换环境，**只作用于当前进程**
 
   在导入pinocchio库前代码最先执行：
 
@@ -109,13 +151,18 @@ pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorc
       original_sys_path = sys.path.copy()  # 可选：备份原始路径，万一需要恢复
       sys.path = [p for p in sys.path if "/opt/openrobots" not in p]
   
-      # 2. 处理 os.environ（当前进程的环境变量）：移除 /opt/openrobots，添加 cmeel.prefix/lib
+      # 2. 处理 os.environ（当前进程的环境变量）：移除 /opt/openrobots ，添加 cmeel.prefix/lib
+      # 添加 cmeel.prefix/lib/python3.10/site-packages 到 sys.path（让 Python 能找到 pinocchio 包）
+      cmeel_py_path = "/home/molufan/anaconda3/envs/dex_retargeting/lib/python3.10/site-packages/cmeel.prefix/lib/python3.10/site-packages"
+      if cmeel_py_path not in sys.path:
+          sys.path.insert(1, cmeel_py_path)
+  
       if "LD_LIBRARY_PATH" in os.environ:
           original_ld = os.environ["LD_LIBRARY_PATH"]
           # 移除 /opt/openrobots
           clean_ld = [p for p in original_ld.split(os.pathsep) if p and "/opt/openrobots" not in p]
-          # 添加 cmeel.prefix/lib（优先）
-          cmeel_lib = "/home/molufan/anaconda3/envs/dex_retargeting/lib/python3.9/site-packages/cmeel.prefix/lib"
+          # 添加 cmeel.prefix/lib（让 .so 共享库能被加载）
+          cmeel_lib = "/home/molufan/anaconda3/envs/dex_retargeting/lib/python3.10/site-packages/cmeel.prefix/lib"
           if cmeel_lib not in clean_ld:
               clean_ld.insert(0, cmeel_lib)
           # 更新当前进程的环境变量
@@ -124,9 +171,9 @@ pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorc
   # 执行清理（仅对当前 Python 进程生效）
   clean_env_for_current_process()
   ```
-
   
-
+  
+  
   
 
 ## Changelog
