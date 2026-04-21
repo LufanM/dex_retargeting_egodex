@@ -270,6 +270,8 @@ def retarget_egodex(dataset: SimpleDataset, robot_name: RobotName, num_episodes:
     right_kp_idx = right_retargeting.optimizer.target_link_human_indices
     left_robot   = left_retargeting.optimizer.robot
     right_robot  = right_retargeting.optimizer.robot
+    left_wrist_link_name = left_config.wrist_link_name
+    right_wrist_link_name = right_config.wrist_link_name
 
     # ── 解析 URDF mesh，一次性写入 Rerun（static=True） ────────────────────────
     left_link_meshes  = parse_urdf_link_meshes(left_config.urdf_path)
@@ -390,11 +392,11 @@ def retarget_egodex(dataset: SimpleDataset, robot_name: RobotName, num_episodes:
         left_robot.compute_forward_kinematics(q_target_left)
         right_robot.compute_forward_kinematics(q_target_right)
         left_base_world  = left_wrist_pose2render  @ left_robot.get_link_pose(
-            left_robot.get_link_index('left_base_link'))
+            left_robot.get_link_index(left_wrist_link_name))
         right_base_world = right_wrist_pose2render @ right_robot.get_link_pose(
-            right_robot.get_link_index('right_base_link'))
-        log_axes("robot/left/base_link",  left_base_world,  size=0.05)
-        log_axes("robot/right/base_link", right_base_world, size=0.05)
+            right_robot.get_link_index(right_wrist_link_name))
+        log_axes(f"robot/left/{left_wrist_link_name}",  left_base_world,  size=0.05)
+        log_axes(f"robot/right/{right_wrist_link_name}", right_base_world, size=0.05)
 
         # ╔══════════════════════════════════════════════════════════════════╗
         # ║  🖐  MediaPipe 实时检测 + Retargeting  (--use-mediapipe 时启用)  ║

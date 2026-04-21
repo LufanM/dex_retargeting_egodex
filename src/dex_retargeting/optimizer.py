@@ -33,8 +33,7 @@ class Optimizer:
                 )
             idx_pin2target.append(joint_names.index(target_joint_name))
         self.target_joint_names = target_joint_names
-        self.idx_pin2target = np.array(idx_pin2target)
-
+        self.idx_pin2target = np.array(idx_pin2target) # 他们是优化器的目标关节索引，具体会用于初始化初始的last_qpos,优化器的优化过程是以last_qpos为基础进行迭代优化的
         self.idx_pin2fixed = np.array(
             [i for i in range(robot.dof) if i not in idx_pin2target], dtype=int
         )
@@ -95,7 +94,7 @@ class Optimizer:
 
         self.opt.set_min_objective(objective_fn)
         try:
-            qpos = self.opt.optimize(last_qpos)
+            qpos = self.opt.optimize(last_qpos) # 告诉优化器初始值，从而确定优化的起点，优化器会在这个基础上进行迭代优化
             return np.array(qpos, dtype=np.float32)
         except RuntimeError as e:
             print(e)
@@ -143,6 +142,20 @@ class PositionOptimizer(Optimizer):
         torch_target_pos = torch.as_tensor(target_pos)
         torch_target_pos.requires_grad_(False)
 
+        """ 
+        优化求解机器人关节角                                                                                                                                                                                                                                                       
+        - qpos = retargeting.retarget(ref_value)
+        - PositionOptimizer 做什么
+        - 目标：最小化机器人手上 N 个 link 的 3D 位置，与人手对应关节 3D 位置之间的距离
+        - 优化变量：机器人关节角 q 
+        - 目标函数：min_q Σ || FK_robot(link_i, q) - ref_value[i] ||²
+        - 约束：关节角限位                                                                                                                                                                                                                                                     
+        - 配置文件（如 allegro_hand_right_position.yml）中的 target_link_human_indices 定义了：机器人的哪些 link 对应人手的哪些关节（MANO 21 关节中的索引）。
+        
+        **可以理解为**： 
+        - 当target_link_human_indices只指定指尖的时候，就是IK问题；
+        - 当target_link_human_indices指定了更多的关节（比如掌心），就是一个更复杂的优化问题，优化器需要在多个关节位置之间进行权衡，找到一个最优的解决方案。
+        """
         def objective(x: np.ndarray, grad: np.ndarray) -> float:
             qpos[self.idx_pin2target] = x
 
@@ -347,7 +360,8 @@ class DexPilotOptimizer(Optimizer):
         eta2=3e-2,
         scaling=1.0,
     ):
-        if len(finger_tip_link_names) < 2 or len(finger_tip_link_names) > 5:
+        # if len(finger_tip_link_names) < 2 or len(finger_tip_link_names) > 5:
+        if len(finger_tip_link_names) < 2 or len(finger_tip_link_names) > 6:
             raise ValueError(
                 f"DexPilot optimizer can only be applied to hands with 2 to 5 fingers, but got "
                 f"{len(finger_tip_link_names)} fingers."

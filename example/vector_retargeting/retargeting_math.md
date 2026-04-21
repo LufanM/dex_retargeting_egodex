@@ -103,8 +103,8 @@ L_{\text{huber}} = \frac{1}{N} \sum_{k} w_k \cdot \text{Huber}(d_k), \quad d_k =
 \frac{\partial L}{\partial \mathbf{v}_k} = \frac{w_k}{N} \cdot \text{Huber}'(d_k) \cdot \frac{\partial d_k}{\partial \mathbf{v}_k}
 \]
 其中：
-- \(\text{Huber}'(d) = \begin{cases} d/\delta, & |d| \le \delta \\ \operatorname{sign}(d), & |d| > \delta \end{cases}\)
-- \(\frac{\partial d_k}{\partial \mathbf{v}_k} = \frac{(\mathbf{v}_k - \mathbf{v}_k^{\text{target}})^{\!T}}{d_k + \epsilon}\)
+- \(\text{Huber}'(d) = \begin{cases} d/\delta, & |d| \le \delta \\ \operatorname{sign}(d), & |d| > \delta \end{cases}\)，\(\text{Huber}(d) = \begin{cases} 0.5d^2/\delta, & |d| \le \delta \\ |d|-0.5\delta, & |d| > \delta \end{cases}\)
+- \(\frac{\partial d_k}{\partial \mathbf{v}_k} = \frac{(\mathbf{v}_k - \mathbf{v}_k^{\text{target}})^{\!T}}{d_k + \epsilon}\)，其中$\epsilon$是代码中为了放置梯度保证加入的，数学表达中没有
 
 ### 3.2 \(\mathbf{v}_k\) 对连杆位置 \(\mathbf{p}_i\) 的梯度
 向量 \(\mathbf{v}_k = \mathbf{p}_{\text{task}} - \mathbf{p}_{\text{origin}}\)，因此：
@@ -243,3 +243,126 @@ def objective(x: np.ndarray, grad: np.ndarray) -> float:
 ## 5 扩展
 
 ### 5.1 关于约束的加入
+
+
+
+-- --
+
+
+
+# PositionOptimizer 优化笔记
+
+## 1. 方法概述
+
+PositionOptimizer 是一种**多目标 IK（逆运动学）**方法，用于离线数据处理场景（如 DexYCB 数据集）。
+
+- **输入**：人手 N 个关键点的 3D 世界坐标（从 MANO 模型 forward kinematics 得到）
+- **输出**：机器人关节角 `q`
+- **本质**：最小化机器人 N 个 link 的 FK 位置与人手对应关节位置之间的距离
+
+与 DexPilotOptimizer 的区别：
+- Position：直接匹配 3D 位置，适合离线重定向（有完整手部姿态）
+- DexPilot/Vector：匹配相对向量，适合实时遥操作（对绝对位置漂移更鲁棒）
+
+---
+
+## 2. 数据输入
+
+**来源**：DexYCB 数据集，`pose["pose_m"]` 经 MANO 模型 FK 得到 21 个关节的 3D 坐标。
+
+MANO 21 个关节索引：
+
+| 索引 | 关节 | 索引 | 关节 |
+|------|------|------|------|
+| 0 | wrist | 11 | middle_dip |
+| 1 | thumb_mcp | 12 | middle_tip |
+| 2 | thumb_pip | 13 | ring_mcp |
+| 3 | thumb_dip | 14 | ring_pip |
+| 4 | thumb_tip | 15 | ring_dip |
+| 5 | index_mcp | 16 | ring_tip |
+| 6 | index_pip | 17 | little_mcp |
+| 7 | index_dip | 18 | little_pip |
+| 8 | index_tip | 19 | little_dip |
+| 9 | middle_mcp | 20 | little_tip |
+| 10 | middle_pip | | |
+
+配置文件中 `target_link_human_indices` 选取其中 N 个作为优化目标，例如 Allegro（offline）取 N=8：
+```
+[4, 8, 12, 16, 2, 6, 10, 14]  # 四指指尖 + 四指 DIP 关节
+```
+
+---
+
+## 3. 目标函数
+
+\[
+\mathcal{L}(\mathbf{x}) = \frac{1}{N} \sum_{i=1}^{N} \text{Huber}_{\delta}\big(\|\mathbf{p}_i^{\text{robot}}(\mathbf{x}) - \mathbf{p}_i^{\text{target}}\|\big) \;+\; \alpha \|\mathbf{x} - \mathbf{x}_{\text{prev}}\|^2
+\]
+
+- **\(\mathbf{x}\)**：机器人关节角向量
+- **\(\mathbf{p}_i^{\text{robot}}(\mathbf{x})\)**：第 \(i\) 个机器人 link 的 FK 位置（3D）
+- **\(\mathbf{p}_i^{\text{target}}\)**：人手对应关节的 3D 位置（`ref_value[i]`）
+- **\(\text{Huber}_{\delta}\)**：Huber 损失，`huber_delta=0.02`
+- **\(\alpha\)**：时序正则化强度，`norm_delta=4e-3`
+
+与 DexPilotOptimizer 相比，PositionOptimizer **没有动态权重**，所有 link 权重均等。
+
+---
+
+## 4. 梯度计算
+
+与 DexPilotOptimizer 完全一致，链式法则：
+
+\[
+\nabla_{\mathbf{x}} \mathcal{L} = \sum_i \left( \frac{\partial L_{\text{huber}}}{\partial \mathbf{p}_i} \right)^{\!T} \cdot \mathbf{J}_{\mathbf{p}_i} \;+\; 2\alpha (\mathbf{x} - \mathbf{x}_{\text{prev}})
+\]
+
+代码步骤（`optimizer.py: PositionOptimizer.get_objective_function`）：
+
+1. FK 计算所有目标 link 位置 `body_pos`，shape `(N, 3)`
+2. PyTorch 计算 Huber 损失并 `backward()`，得到 `grad_pos` shape `(N, 1, 3)`
+3. 计算每个 link 的世界坐标系雅可比：`link_rot @ link_body_jacobian`，shape `(N, 3, dof)`
+4. `np.matmul(grad_pos, jacobians).mean(1).sum(0)` 得到关节梯度，shape `(dof,)`
+5. 加正则项梯度 `2 * norm_delta * (x - last_qpos)`
+
+---
+
+## 5. Warm Start
+
+PositionOptimizer 配合 `add_dummy_free_joint=True` 使用时，机器人根部有 6-DoF 自由关节，允许手在空间中自由移动。
+
+`SeqRetargeting.warm_start()` 在第一帧通过解析计算初始化腕部 6D 姿态，避免优化从零开始陷入局部最优：
+
+```python
+retargeting.warm_start(
+    joint[0, :],      # 人手腕部 3D 位置
+    wrist_quat,       # 人手腕部四元数
+    hand_type=self.hand_type,
+    is_mano_convention=True,
+)
+```
+
+---
+
+# VectorOptimizer 优化笔记
+
+VectorOptimizer 是遥操作场景下的基础向量匹配方法，比 DexPilot 更简单，无投影机制。
+
+## 1 目标函数
+
+\[
+\mathcal{L}(\mathbf{x}) = \frac{1}{N} \sum_{k=1}^{N} \text{Huber}_{\delta}\big(\|\mathbf{v}_k^{\text{robot}}(\mathbf{x}) - s \cdot \mathbf{v}_k^{\text{target}}\|\big) \;+\; \alpha \|\mathbf{x} - \mathbf{x}_{\text{prev}}\|^2
+\]
+
+- **\(\mathbf{v}_k = \mathbf{p}_{\text{task}} - \mathbf{p}_{\text{origin}}\)**：机器人 link 对之间的相对向量
+- **\(s\)**：`scaling_factor`，补偿机器人与人手尺寸差异（如 Allegro 为 1.6）
+- 配置中 `target_link_human_indices` shape 为 `(2, N)`，第 0 行是 origin 索引，第 1 行是 task 索引
+
+## 2 与 DexPilotOptimizer 的关系
+
+| 特性 | VectorOptimizer | DexPilotOptimizer |
+|------|----------------|-------------------|
+| 向量构造 | 任意 link 对 | 固定：手腕-指尖 + 指尖间 |
+| 动态权重 | 无（均等） | 有（投影状态高权重） |
+| 投影机制 | 无 | 有（防止手指交叉） |
+| 适用场景 | 通用遥操作 | 精细抓取遥操作 |

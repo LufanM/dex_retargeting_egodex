@@ -397,7 +397,7 @@
     <limit effort="1000.0" upper="0.0" lower="-0.98786" velocity="1"/>
     <origin rpy="0 0 0" xyz="-0.0184 0.006 0.0375"/>
     <axis xyz="0 0 1"/>
-    <mimic joint="left_hand_Thumb_Opposition" multiplier="1" offset="0"/>
+    <mimic joint="left_hand_Thumb_Opposition" multiplier="-1" offset="0"/>
   </joint>
   <!-- THUMB JOINTS -->
   <joint name="left_hand_j3" type="revolute">
