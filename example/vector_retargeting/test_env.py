@@ -4,7 +4,7 @@ import os
 # ====================== 【仅当前进程生效】动态清理路径 ======================
 def clean_env_for_current_process():
     # 1. 处理 sys.path（Python 内部的模块搜索路径）：移除 /opt/openrobots
-    original_sys_path = sys.path.copy()  # 可选：备份原始路径，万一需要恢复
+    # original_sys_path = sys.path.copy()  # 可选：备份原始路径，万一需要恢复
     sys.path = [p for p in sys.path if "/opt/openrobots" not in p]
 
     # 2. 处理 os.environ（当前进程的环境变量）：移除 /opt/openrobots ，添加 cmeel.prefix/lib
@@ -25,7 +25,7 @@ def clean_env_for_current_process():
         os.environ["LD_LIBRARY_PATH"] = os.pathsep.join(clean_ld)
 
 # 执行清理（仅对当前 Python 进程生效）
-clean_env_for_current_process()
+# clean_env_for_current_process()
 
 print("Python 解释器路径：", sys.executable)
 print("\n所有库查找路径（按优先级排序）：")
