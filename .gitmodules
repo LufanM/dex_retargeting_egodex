@@ -1,4 +1,3 @@
 [submodule "egodex"]
 	path = egodex
-	url = https://github.com/LufanM/ml-egodex.git
-	branch = main
+	url = git@github.com:LufanM/ml-egodex.git
