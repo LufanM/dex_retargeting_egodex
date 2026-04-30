@@ -37,22 +37,24 @@ NEW_QUERY_TFS = (
     ['rightHand'] + NEW_RIGHT_FINGERS + ['rightForearm']
 )
 
-T_robot_avp = np.array([[0, 0, -1, 0], # rot z -90° and rot y -90° fixed axis: Roty(-90d)*Rotz(-90d)
+# 固定旋转，将AVP的y up坐标系旋转至z up坐标系习惯
+# # rot z -90° and rot y -90° fixed axis: Roty(-90d)*Rotz(-90d)
+T_ROBOT_AVP = np.array([[0, 0, -1, 0], 
                         [-1, 0, 0, 0],
                         [0, 1, 0, 0],
                         [0, 0, 0, 1]])
 
-# rot x 90° and rot z 90° fixed axis of Wrist(Robot Convention): Rotz(90°)*Rotx(90°). 
-# For corresponding to the oritention from avp wrist to robot model default orientation that defined in the urdf and mesh.
-T_wrist_left_2world = np.eye(4)
-T_wrist_left_2world[:3, :3] = (Rotation.from_euler('z', 90, degrees=True) * Rotation.from_euler('x', 90, degrees=True)).as_matrix()  
-print("T_wrist_left_2world:\n", T_wrist_left_2world)
+# 固定旋转：将 AVP 数据集的手腕坐标约定对齐到 URDF 定义的手腕坐标约定。
+# 左手：Rotz(90°)*Rotx(90°)（固定轴）
+T_AVPWRIST2URDFWRIST_LEFT = np.eye(4)
+T_AVPWRIST2URDFWRIST_LEFT[:3, :3] = (Rotation.from_euler('z', 90, degrees=True) * Rotation.from_euler('x', 90, degrees=True)).as_matrix()  
+print("T_AVPWRIST2URDFWRIST_LEFT:\n", T_AVPWRIST2URDFWRIST_LEFT)
 
 
-# rot x -90° and rot y 180° fixed axis of Wrist(Robot Convention): Roty(180°)*Rotx(-90°)
-T_wrist_right_2world = np.eye(4)
-T_wrist_right_2world[:3, :3] = (Rotation.from_euler('z', -90, degrees=True) * Rotation.from_euler('x', 90, degrees=True)).as_matrix()  
-print("T_wrist_right_2world:\n", T_wrist_right_2world)
+# 右手：Rotz(-90°)*Rotx(90°)（固定轴）
+T_AVPWRIST2URDFWRIST_RIGHT = np.eye(4)
+T_AVPWRIST2URDFWRIST_RIGHT[:3, :3] = (Rotation.from_euler('z', -90, degrees=True) * Rotation.from_euler('x', 90, degrees=True)).as_matrix()  
+print("T_avpwrist2urdfwrist_right:\n", T_AVPWRIST2URDFWRIST_RIGHT)
 # ──────────────────────────────────────────────────────────────────────────────
 # 人手骨骼连接定义（对应 tfs 的前/后半部分，各 26 个节点）
 # idx 0: Hand, 1-4: Thumb, 5-9: Index, 10-14: Middle, 15-19: Ring, 20-24: Little, 25: Forearm
@@ -307,7 +309,7 @@ def retarget_egodex(dataset: SimpleDataset, robot_name: RobotName, num_episodes:
 
         tfs_avp, cam_ext, cam_int, cam_img, _, _ = dataset[i]
         episodes_idx, start_ts = dataset._locate_transition(i)
-        tfs = T_robot_avp @ tfs_avp
+        tfs = T_ROBOT_AVP @ tfs_avp
 
         # if i == start_ts:
         print(f"Episode {episodes_idx} starts at transition {i}.start_ts is {start_ts}")
@@ -321,27 +323,31 @@ def retarget_egodex(dataset: SimpleDataset, robot_name: RobotName, num_episodes:
         pos_left_world  = tfs_left[:, :3, 3]    # 世界系，用于骨骼可视化
         pos_right_world = tfs_right[:, :3, 3]
 
-        # DexPilot 优化器的 robot FK 在 base_link (wrist)局部坐标系下计算，
-        # 输入向量必须与之一致，即转到 robot base_link 坐标系。
-        #
-        # 坐标系链（右乘约定）：
-        #   world  ← R_wrist ← T_wrist_*_2world ← base_link
-        # 逆变换（world → base_link）：
-        #   v_base = T_wrist_2world[:3,:3].T  @  R_wrist.T  @  v_world
-        #
-        # 对比 MediaPipe 通道：
-        #   joint_pos = raw_kp @ mediapipe_wrist_rot @ operator2mano
-        #   其中 mediapipe_wrist_rot @ operator2mano 就扮演了同样的角色，
-        #   把关键点从摄像机空间转到 base_link 等价坐标系。
+        """
+        - DexPilot 优化器的 robot FK 在 base_link (wrist)局部坐标系下计算，
+            输入向量必须与之一致，即转到 robot base_link 坐标系。
+        
+        - 坐标系链（右乘约定）：
+            world  ← R_wrist ← T_wrist_*_2world ← base_link
+        - 逆变换（world → base_link）：
+            v_base = T_wrist_2world[:3,:3].T  @  R_wrist.T  @  v_world
+        
+        -对比 MediaPipe 通道：
+            joint_pos = raw_kp @ mediapipe_wrist_rot @ operator2mano
+            其中 mediapipe_wrist_rot @ operator2mano 就扮演了同样的角色，
+            把关键点从摄像机空间转到 base_link 等价坐标系。
+        """
         R_wrist_left  = tfs_left[0, :3, :3]    # AVP 左手腕在 robot-world 系的旋转
         R_wrist_right = tfs_right[0, :3, :3]
-        # 完整变换：AVP wrist → robot base_link 
-        # ** 对齐URDF定义的手腕姿态(z朝手指方向)和数据集中的手腕姿态，否则机器人的FK计算的基座(z朝手指方向)和数据集中的基座的姿态不一致，导致重定向结果不正确 **
-        R_base_left  = R_wrist_left  @ T_wrist_left_2world[:3, :3] 
-        R_base_right = R_wrist_right @ T_wrist_right_2world[:3, :3]
-
-        pos_left_local  = (R_base_left.T  @ pos_left_world.T).T    # (26,3) base_link系
-        pos_right_local = (R_base_right.T @ pos_right_world.T).T
+        """
+        重定向前的手腕坐标系对齐
+        - 对齐URDF定义的手腕姿态(z朝手指方向)和数据集中的手腕姿态，否则机器人的FK计算的基座(z朝手指方向)和数据集中的基座的姿态不一致，导致重定向结果不正确 
+        - 数据集中只进行了全局位姿对齐的左手是x朝中指方向，y轴垂直手掌向下; 右手x与中指方向相反，y轴垂直手掌向上，因此需要对齐到URDF定义的手腕姿态 
+        """
+        R_world2base_left  = R_wrist_left  @ T_AVPWRIST2URDFWRIST_LEFT[:3, :3] 
+        R_world2base_right = R_wrist_right @ T_AVPWRIST2URDFWRIST_RIGHT[:3, :3]
+        pos_left_local  = (R_world2base_left.T  @ pos_left_world.T).T
+        pos_right_local = (R_world2base_right.T @ pos_right_world.T).T
 
         ref_left  = pos_left_local[left_kp_idx[1, :]]  - pos_left_local[left_kp_idx[0, :]]
         ref_right = pos_right_local[right_kp_idx[1, :]] - pos_right_local[right_kp_idx[0, :]]
@@ -383,20 +389,13 @@ def retarget_egodex(dataset: SimpleDataset, robot_name: RobotName, num_episodes:
         # ╚══════════════════════════════════════════════════════════════════╝
 
         # 更新各 link 的世界系变换（mesh 已静态写入，只需更新 Transform） ==基坐标系是手腕==
-        left_wrist_pose2render = left_wrist_pose @ T_wrist_left_2world
-        right_wrist_pose2render = right_wrist_pose @ T_wrist_right_2world
+        left_wrist_pose2render = left_wrist_pose @ T_AVPWRIST2URDFWRIST_LEFT
+        right_wrist_pose2render = right_wrist_pose @ T_AVPWRIST2URDFWRIST_RIGHT
         log_robot_transforms("robot/left",  left_robot,  q_target_left,  left_wrist_pose2render)
         log_robot_transforms("robot/right", right_robot, q_target_right, right_wrist_pose2render)
 
-        # base_link 坐标轴（用于对比人手手腕坐标系是否对齐）
-        left_robot.compute_forward_kinematics(q_target_left)
-        right_robot.compute_forward_kinematics(q_target_right)
-        left_base_world  = left_wrist_pose2render  @ left_robot.get_link_pose(
-            left_robot.get_link_index(left_wrist_link_name))
-        right_base_world = right_wrist_pose2render @ right_robot.get_link_pose(
-            right_robot.get_link_index(right_wrist_link_name))
-        log_axes(f"robot/left/{left_wrist_link_name}",  left_base_world,  size=0.05)
-        log_axes(f"robot/right/{right_wrist_link_name}", right_base_world, size=0.05)
+        log_axes(f"robot/left/wrist",  left_wrist_pose2render,  size=0.05)# 注意别和log_robot_transforms的rr.log重名，不然会被多次旋转
+        log_axes(f"robot/right/wrist", right_wrist_pose2render, size=0.05)
 
         # ╔══════════════════════════════════════════════════════════════════╗
         # ║  🖐  MediaPipe 实时检测 + Retargeting  (--use-mediapipe 时启用)  ║

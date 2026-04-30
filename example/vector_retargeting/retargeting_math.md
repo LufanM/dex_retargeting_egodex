@@ -1,5 +1,27 @@
 
 
+# 说在前面
+
+**Q:为什么推荐离线用position retargeting ,而teleop用dexpilot或者vector?** 
+
+● 核心是"可观测信息类型"和"控制需求"不同。
+
+  - **离线（position retargeting）**
+    你通常有更完整、更稳定的人手3D轨迹（可平滑、可回看、可重跑），目标是尽量还原几何姿态本身。         Position 直接对齐绝对3D点位（多目标IK），重建精度高，结果更接近原始数据，适合数据生成/评估/回放。                                                                                                                                                                               
+    
+  - **遥操作 teleop（vector/dexpilot）**
+    实时输入常有抖动、尺度漂移、腕部偏移、遮挡丢点。            
+    Vector/DexPilot主要匹配相对几何关系（手指间、腕-指向量），对全局平移和部分尺度误差更不敏感，控制更稳、更"跟手"。                                                                                                                                      
+    
+  - **为什么 DexPilot 常比纯 Vector 更适合抓取 teleop**
+    DexPilot有投影和动态权重机制，会优先保证关键指间关系，抑制手指交叉和不自然闭合，在抓取临界状态下更稳定。  
+    
+    ​                                                                                                                                                                                                 
+
+  **一句话：离线要"还原精度"，teleop要"实时稳定和可操作性"，所以前者偏 position，后者偏 vector/dexpilot。**
+
+
+
 # DexPilotOptimizer 优化笔记
 
 ## 1. 目标函数

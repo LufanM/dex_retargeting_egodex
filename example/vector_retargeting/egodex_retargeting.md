@@ -13,7 +13,9 @@
 
 
 
-2.  如果需要基于urdf和mesh文件进行机器人的可视化，进行第1步后获得的$T^{world}_{wrist}$姿态如下图
+2. 如果需要基于urdf和mesh文件进行机器人的可视化，进行第1步后获得的$T^{world}_{wrist}$姿态如下图。
+
+   > $T^{world}_{wrist}$与AVP遥操时候的重定向的$T^{world}_{wrist}$是
 
 ![image-20260402124207321](./egodex_retargeting.assets/image-20260402124207321.png)
 
